@@ -1,7 +1,7 @@
 from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import trainModel
 
 
-modelName = "speechBaseline4"
+modelName = "resnet"
 
 args = {}
 args["outputDir"] = "/hpi/fs00/scratch/leon.hermann/b2t/speech_logs/" + modelName
@@ -9,8 +9,8 @@ args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
 args["seqLen"] = 150
 args["maxTimeSeriesLen"] = 1200
 args["batchSize"] = 64
-args["lrStart"] = 0.02
-args["lrEnd"] = 0.02
+args["lrStart"] = 0.002
+args["lrEnd"] = 0.001
 args["nUnits"] = 1024
 args["nBatch"] = 10000  # 3000
 args["nLayers"] = 5
@@ -25,6 +25,8 @@ args["strideLen"] = 4
 args["kernelLen"] = 32
 args["bidirectional"] = True
 args["l2_decay"] = 1e-5
+
+args["model"] = "resnet"
 
 
 trainModel(args)

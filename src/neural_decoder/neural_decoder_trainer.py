@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 
 from src.model.mamba_model import MambaArgsModel, MambaLMHeadModel
 
+from .resnet import ResnetDecoder
 from .model import GRUDecoder
 from .dataset import SpeechDataset
 
@@ -77,7 +78,10 @@ def getDatasetLoaders(
             torch.stack(days),
         )
 
-    train_ds = SpeechDataset(loadedData["train"], transform=None)
+    train_ds = SpeechDataset(
+        loadedData["train"],
+        transform=None,
+    )
     test_ds = SpeechDataset(loadedData["test"])
 
     train_loader = DataLoader(
@@ -130,7 +134,7 @@ def trainModel(args):
             )
             mamba = MambaLMHeadModel(
                 config=mamba_config,
-                vocab_size=args["nClasses"]+1,
+                vocab_size=args["nClasses"] + 1,
                 in_size=args["nInputFeatures"] * args["kernelLen"],
             )
             model = ModelWrapper(
@@ -141,6 +145,9 @@ def trainModel(args):
                 args["strideLen"],
                 len(loadedData["train"]),
             ).to(device)
+        else:
+            # TODO: Add resnet model
+            model = ResnetDecoder(args["nClasses"] + 1).to(device)
     else:
         model = GRUDecoder(
             neural_dim=args["nInputFeatures"],
@@ -196,6 +203,14 @@ def trainModel(args):
                 torch.randn([X.shape[0], 1, X.shape[2]], device=device)
                 * args["constantOffsetSD"]
             )
+
+        if "model" in args.keys() and args["model"] == "resnet":
+            splits = X.split(64, dim=-1)
+            channels = []
+            for split in splits:
+                split = split.view(split.shape[0], split.shape[1], 8, 8)
+                channels.append(split)
+            X = torch.stack(channels, dim=2)
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)
