@@ -146,8 +146,14 @@ def trainModel(args):
                 len(loadedData["train"]),
             ).to(device)
         else:
-            # TODO: Add resnet model
-            model = ResnetDecoder(args["nClasses"] + 1).to(device)
+            model = ResnetDecoder(
+                args["nClasses"] + 1,
+                input_channels=1,
+                neural_dim=args["nInputFeatures"],
+                gaussianSmoothWidth=args["gaussianSmoothWidth"],
+                nDays=len(loadedData["train"]),
+                dropout=args["dropout"],
+            ).to(device)
     else:
         model = GRUDecoder(
             neural_dim=args["nInputFeatures"],
@@ -164,13 +170,22 @@ def trainModel(args):
         ).to(device)
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args["lrStart"],
-        betas=(0.9, 0.999),
-        eps=0.1,
-        weight_decay=args["l2_decay"],
-    )
+    if ("model" in args.keys()) and (args["model"] == "resnet"):
+        optimizer = torch.optim.Adam(
+            model.fc_decoder_out.parameters(),
+            lr=args["lrStart"],
+            betas=(0.9, 0.999),
+            eps=0.1,
+            weight_decay=args["l2_decay"],
+        )
+    else:
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=args["lrStart"],
+            betas=(0.9, 0.999),
+            eps=0.1,
+            weight_decay=args["l2_decay"],
+        )
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer,
         start_factor=1.0,
@@ -204,13 +219,17 @@ def trainModel(args):
                 * args["constantOffsetSD"]
             )
 
-        if "model" in args.keys() and args["model"] == "resnet":
-            splits = X.split(64, dim=-1)
-            channels = []
-            for split in splits:
-                split = split.view(split.shape[0], split.shape[1], 8, 8)
-                channels.append(split)
-            X = torch.stack(channels, dim=2)
+        # if "model" in args.keys() and args["model"] == "resnet":
+        #    # Reshapes input into (4,8,8) neural representation
+        #    # splits = X.split(64, dim=-1)
+        #    # channels = []
+        #    # for split in splits:
+        #    #     split = split.view(split.shape[0], split.shape[1], 8, 8)
+        #    #     channels.append(split)
+        #    # X = torch.stack(channels, dim=2)
+        #
+        #    # Reshapes input into (1, 16, 16) neural representation
+        #    X = X.view(X.shape[0], X.shape[1], 1, 16, 16)
 
         # Compute prediction error
         pred = model.forward(X, dayIdx)
