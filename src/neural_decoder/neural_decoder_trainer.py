@@ -4,13 +4,57 @@ import time
 
 from edit_distance import SequenceMatcher
 import hydra
+from neural_decoder.augmentations import GaussianSmoothing
 import numpy as np
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
+from src.model.mamba_model import MambaArgsModel, MambaLMHeadModel
+
 from .model import GRUDecoder
 from .dataset import SpeechDataset
+
+
+class ModelWrapper(torch.nn.Module):
+    def __init__(
+        self, model, neural_dim, gaussianSmoothWidth, kernelLen, strideLen, nDays
+    ):
+        super().__init__()
+        self.model = model
+        self.kernelLen = kernelLen
+        self.strideLen = strideLen
+        self.gaussianSmoother = GaussianSmoothing(
+            neural_dim, 20, gaussianSmoothWidth, dim=1
+        )
+        self.unfolder = torch.nn.Unfold(
+            (kernelLen, 1), dilation=1, padding=0, stride=strideLen
+        )
+        self.dayWeights = torch.nn.Parameter(torch.randn(nDays, neural_dim, neural_dim))
+        self.dayBias = torch.nn.Parameter(torch.zeros(nDays, 1, neural_dim))
+        self.inputLayerNonlinearity = torch.nn.Softsign()
+
+    def forward(self, neuralInput, dayIdx):
+        neuralInput = torch.permute(neuralInput, (0, 2, 1))
+        neuralInput = self.gaussianSmoother(neuralInput)
+        neuralInput = torch.permute(neuralInput, (0, 2, 1))
+
+        # apply day layer
+        dayWeights = torch.index_select(self.dayWeights, 0, dayIdx)
+        transformedNeural = torch.einsum(
+            "btd,bdk->btk", neuralInput, dayWeights
+        ) + torch.index_select(self.dayBias, 0, dayIdx)
+        transformedNeural = self.inputLayerNonlinearity(transformedNeural)
+
+        # stride/kernel
+        stridedInputs = torch.permute(
+            self.unfolder(
+                torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3)
+            ),
+            (0, 2, 1),
+        )
+        out = self.model.forward(stridedInputs)
+        return out.logits
 
 
 def getDatasetLoaders(
@@ -55,6 +99,7 @@ def getDatasetLoaders(
 
     return train_loader, test_loader, loadedData
 
+
 def trainModel(args):
     os.makedirs(args["outputDir"], exist_ok=True)
     torch.manual_seed(args["seed"])
@@ -69,19 +114,47 @@ def trainModel(args):
         args["batchSize"],
     )
 
-    model = GRUDecoder(
-        neural_dim=args["nInputFeatures"],
-        n_classes=args["nClasses"],
-        hidden_dim=args["nUnits"],
-        layer_dim=args["nLayers"],
-        nDays=len(loadedData["train"]),
-        dropout=args["dropout"],
-        device=device,
-        strideLen=args["strideLen"],
-        kernelLen=args["kernelLen"],
-        gaussianSmoothWidth=args["gaussianSmoothWidth"],
-        bidirectional=args["bidirectional"],
-    ).to(device)
+    if "model" in args.keys():
+        if args["model"] == "mamba":
+            mamba_config = MambaArgsModel(
+                mamba_d_model=args["mamba_d_model"],
+                mamba_n_layer=args["mamba_n_layer"],
+                rms_norm=args["rms_norm"],
+                residual_in_fp32=args["residual_in_fp32"],
+                fused_add_norm=args["fused_add_norm"],
+                feature_extractor_hidden_sizes=args["feature_extractor_hidden_sizes"],
+                feature_extractor_activation=args["feature_extractor_activation"],
+                classifier_hidden_sizes=args["classifier_hidden_sizes"],
+                classifier_activation=args["classifier_activation"],
+                input_dropout=args["dropout"],
+            )
+            mamba = MambaLMHeadModel(
+                config=mamba_config,
+                vocab_size=args["nClasses"]+1,
+                in_size=args["nInputFeatures"] * args["kernelLen"],
+            )
+            model = ModelWrapper(
+                mamba,
+                args["nInputFeatures"],
+                args["gaussianSmoothWidth"],
+                args["kernelLen"],
+                args["strideLen"],
+                len(loadedData["train"]),
+            ).to(device)
+    else:
+        model = GRUDecoder(
+            neural_dim=args["nInputFeatures"],
+            n_classes=args["nClasses"],
+            hidden_dim=args["nUnits"],
+            layer_dim=args["nLayers"],
+            nDays=len(loadedData["train"]),
+            dropout=args["dropout"],
+            device=device,
+            strideLen=args["strideLen"],
+            kernelLen=args["kernelLen"],
+            gaussianSmoothWidth=args["gaussianSmoothWidth"],
+            bidirectional=args["bidirectional"],
+        ).to(device)
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     optimizer = torch.optim.Adam(
@@ -240,6 +313,7 @@ def loadModel(modelDir, nInputLayers=24, device="cuda"):
 def main(cfg):
     cfg.outputDir = os.getcwd()
     trainModel(cfg)
+
 
 if __name__ == "__main__":
     main()
