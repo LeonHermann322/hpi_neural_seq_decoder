@@ -4,7 +4,7 @@ from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import tra
 modelName = "speechBaseline4"
 
 args = {}
-args["outputDir"] = "/hpi/fs00/scratch/leon.hermann/b2t/speech_logs/" + modelName
+args["outputDir"] = "/hpi/fs00/scratch/tobias.fiedler/b2t/speech_logs/" + modelName
 args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
 args["seqLen"] = 150
 args["maxTimeSeriesLen"] = 1200

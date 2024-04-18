@@ -2,25 +2,21 @@ import re
 import time
 import pickle
 import numpy as np
-
 import torch
 
 # from dataset import SpeechDataset
-
-
 import os
 
 # from nnDecoderModel import getDatasetLoaders
-import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
+
 import pickle
 import argparse
-
+import json
 from hpi_neural_seq_decoder.src.neural_decoder.dataset import SpeechDataset
 from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import (
     getDatasetLoaders,
     load_model_based_on_args,
 )
-import json
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--model_dir", type=str, default=None, help="Path to model dir")
@@ -29,6 +25,7 @@ input_args = parser.parse_args()
 
 with open(input_args.model_dir + "/args", "rb") as handle:
     args = pickle.load(handle)
+
 print("Decoding for model with args", json.dumps(args, indent=4))
 
 args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
@@ -41,7 +38,7 @@ model = load_model_based_on_args(args)
 model.load_state_dict(
     torch.load(os.path.join(input_args.model_dir, "modelWeights"), map_location=device)
 )
-print("model loaded from checkpoint")
+
 
 model.eval()
 
@@ -52,6 +49,7 @@ rnn_outputs = {
     "transcriptions": [],
 }
 partition = "competition"
+
 # Caching rnn_outputs to allow for inference to be run in different environment than decoding
 # If decoding does not work in inference env, simply execute once more with decoding env after caching rnn_outputs in inference env
 if os.path.exists(input_args.model_dir + "/rnn_outputs.pkl"):
@@ -99,10 +97,9 @@ else:
 
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 
-print("Logits for test set generated")
 lmDir = "/hpi/fs00/scratch/leon.hermann/languageModel"
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
-    lmDir, acoustic_scale=0.5, nbest=1, beam=18
+    lmDir, acoustic_scale=0.5, nbest=100, beam=18
 )
 
 
@@ -115,26 +112,57 @@ llm_outputs = []
 # Generate nbest outputs from 5gram LM
 start_t = time.time()
 decoded_transcripts = []
+
+all_n_best = []
 for j in range(len(rnn_outputs["logits"])):
     logits = rnn_outputs["logits"][j]
     logits = np.concatenate(
         [logits[:, 1:], logits[:, 0:1]], axis=-1
     )  # Blank is last token
     logits = lmDecoderUtils.rearrange_speech_logits(logits[None, :, :], has_sil=True)
-    decoded_transcript = lmDecoderUtils.lm_decode(
+    n_best = lmDecoderUtils.lm_decode(
         ngramDecoder,
         logits[0],
         blankPenalty=blank_penalty,
-        returnNBest=False,
+        returnNBest=True,
         rescore=False,
     )
-    decoded_transcripts.append(decoded_transcript)
+    all_n_best.append(n_best)
 time_per_sample = (time.time() - start_t) / len(rnn_outputs["logits"])
 print(f"3gram decoding took {time_per_sample} seconds per sample")
 
-out_file = input_args.model_dir + "/submission.txt"
+
+print("LLM rescoring")
+print("Loading LLM model")
+llm, llm_tokenizer = lmDecoderUtils.build_opt(
+    cacheDir="/hpi/fs00/scratch/tobias.fiedler/brain2text",
+    device="auto",
+    load_in_8bit=True,
+)
+for i in range(len(rnn_outputs["transcriptions"])):
+    new_trans = [ord(c) for c in rnn_outputs["transcriptions"][i]] + [0]
+    rnn_outputs["transcriptions"][i] = np.array(new_trans)
+
+start_t = time.time()
+llm_out = lmDecoderUtils.cer_with_gpt2_decoder(
+    llm,
+    llm_tokenizer,
+    all_n_best[:],
+    acoustic_scale,
+    rnn_outputs,
+    outputType="speech_sil",
+    returnCI=True,
+    lengthPenalty=0,
+    alpha=llm_weight,
+)
+cer, cerIstart, cerIend = llm_out["cer"]
+wer, werIstart, werIend = llm_out["wer"]
+time_per_batch = (time.time() - start_t) / len(logits)
+print(f"LLM decoding took {time_per_batch} seconds per sample")
+
+out_file = input_args.model_dir + "/3gram_llm_submission.txt"
 with open(out_file, "w") as f:
-    for transcript in decoded_transcripts:
+    for transcript in llm_out["decoded_transcripts"]:
         f.write(transcript.strip() + "\n")
 
-print("Saved submission txt in ", input_args.model_dir + "/submission.txt")
+print("Saved submission txt in ", out_file)

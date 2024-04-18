@@ -1,7 +1,7 @@
 from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import trainModel
 import json
 
-modelName = "mamba"
+modelName = "mvts"
 
 args = {}
 args["outputDir"] = (
@@ -11,12 +11,12 @@ args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
 args["seqLen"] = 150
 args["batchSize"] = 64
 args["maxTimeSeriesLen"] = 1200
-args["lrStart"] = 0.02
-args["lrEnd"] = 0.01
+args["lrStart"] = 0.005
+args["lrEnd"] = 0.0025
 args["nBatch"] = 10000  # 3000
 args["nClasses"] = 40
 args["nInputFeatures"] = 256
-args["dropout"] = 0.4
+args["dropout"] = 0.3
 args["whiteNoiseSD"] = 1.0
 args["constantOffsetSD"] = 0.2
 args["gaussianSmoothWidth"] = 2.0
@@ -25,24 +25,17 @@ args["kernelLen"] = 32
 args["l2_decay"] = 1e-5
 args["seed"] = 42
 
-args["model"] = "mamba"
+args["model"] = "mvts"
 
-# Mamba args
-args["feature_extractor_activation"] = "linear"
-args["mamba_d_model"] = 256
-args["mamba_n_layer"] = 64
-args["weight_decay"] = 0.001
-args["rms_norm"] = True  # True, gibt Fehler
-args["residual_in_fp32"] = True
-args["fused_add_norm"] = True  # True, gibt Fehler
-args["classifier_hidden_sizes"] = []  # [256, 128, 64]
+# Mvts args
+args["dim_feedforward"] = 256
+args["num_layers"] = 6
+args["num_heads"] = 2
 args["classifier_activation"] = "gelu"
-args["feature_extractor_hidden_sizes"] = []  # [256, 256, 128, 64]
+args["dim_model"] = 1024
 
-args["from_checkpoint"] = (
-    "/hpi/fs00/scratch/tobias.fiedler/brain2text/experiment_results/b2p2t_mamba/2024-03-26_10#39#22/model.pt"
-)
+args["from_checkpoint"] = None
 
-print("Training Mamba model with args: ")
+print("Training Mvts model with args: ")
 print(json.dumps(args, indent=4))
 trainModel(args)

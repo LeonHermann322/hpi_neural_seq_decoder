@@ -1,60 +1,39 @@
 import os
 import pickle
 import time
+from uuid import uuid4
 
 from edit_distance import SequenceMatcher
 import hydra
-from neural_decoder.augmentations import GaussianSmoothing
+from src.datasets.batch_types import PhonemeSampleBatch
+from src.experiments.b2p2t_experiment import B2P2TArgsModel
+from hpi_neural_seq_decoder.src.neural_decoder.augmentations import GaussianSmoothing
 import numpy as np
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 
-from src.model.mamba_model import MambaArgsModel, MambaLMHeadModel
-
+# TODO: include the code imported from src.* into this repo
+from src.model.b2p2t_model import B2P2TModel, B2P2TModelArgsModel
+from src.model.mamba_model import MambaArgsModel, MambaModel
+from src.model.mvts_transformer_model import (
+    MvtsTransformerModel,
+    B2TMvtsTransformerArgsModel,
+)
 from .resnet import ResnetDecoder
-from .model import GRUDecoder
+from .gru_model import GRUDecoder
 from .dataset import SpeechDataset
 
 
 class ModelWrapper(torch.nn.Module):
-    def __init__(
-        self, model, neural_dim, gaussianSmoothWidth, kernelLen, strideLen, nDays
-    ):
+    def __init__(self, model: B2P2TModel):
         super().__init__()
         self.model = model
-        self.kernelLen = kernelLen
-        self.strideLen = strideLen
-        self.gaussianSmoother = GaussianSmoothing(
-            neural_dim, 20, gaussianSmoothWidth, dim=1
-        )
-        self.unfolder = torch.nn.Unfold(
-            (kernelLen, 1), dilation=1, padding=0, stride=strideLen
-        )
-        self.dayWeights = torch.nn.Parameter(torch.randn(nDays, neural_dim, neural_dim))
-        self.dayBias = torch.nn.Parameter(torch.zeros(nDays, 1, neural_dim))
-        self.inputLayerNonlinearity = torch.nn.Softsign()
 
     def forward(self, neuralInput, dayIdx):
-        neuralInput = torch.permute(neuralInput, (0, 2, 1))
-        neuralInput = self.gaussianSmoother(neuralInput)
-        neuralInput = torch.permute(neuralInput, (0, 2, 1))
-
-        # apply day layer
-        dayWeights = torch.index_select(self.dayWeights, 0, dayIdx)
-        transformedNeural = torch.einsum(
-            "btd,bdk->btk", neuralInput, dayWeights
-        ) + torch.index_select(self.dayBias, 0, dayIdx)
-        transformedNeural = self.inputLayerNonlinearity(transformedNeural)
-
-        # stride/kernel
-        stridedInputs = torch.permute(
-            self.unfolder(
-                torch.unsqueeze(torch.permute(transformedNeural, (0, 2, 1)), 3)
-            ),
-            (0, 2, 1),
-        )
-        out = self.model.forward(stridedInputs)
+        batch = PhonemeSampleBatch(input=neuralInput, target=None)
+        batch.day_idxs = dayIdx
+        out = self.model.forward(batch)
         return out.logits
 
 
@@ -105,12 +84,13 @@ def getDatasetLoaders(
 
 
 def trainModel(args):
-    os.makedirs(args["outputDir"], exist_ok=True)
+    out_dir = os.path.join(args["outputDir"], str(uuid4()))
+    os.makedirs(out_dir, exist_ok=True)
     torch.manual_seed(args["seed"])
     np.random.seed(args["seed"])
     device = "cuda"
 
-    with open(args["outputDir"] + "/args", "wb") as file:
+    with open(out_dir + "/args", "wb") as file:
         pickle.dump(args, file)
 
     trainLoader, testLoader, loadedData = getDatasetLoaders(
@@ -118,56 +98,7 @@ def trainModel(args):
         args["batchSize"],
     )
 
-    if "model" in args.keys():
-        if args["model"] == "mamba":
-            mamba_config = MambaArgsModel(
-                mamba_d_model=args["mamba_d_model"],
-                mamba_n_layer=args["mamba_n_layer"],
-                rms_norm=args["rms_norm"],
-                residual_in_fp32=args["residual_in_fp32"],
-                fused_add_norm=args["fused_add_norm"],
-                feature_extractor_hidden_sizes=args["feature_extractor_hidden_sizes"],
-                feature_extractor_activation=args["feature_extractor_activation"],
-                classifier_hidden_sizes=args["classifier_hidden_sizes"],
-                classifier_activation=args["classifier_activation"],
-                input_dropout=args["dropout"],
-            )
-            mamba = MambaLMHeadModel(
-                config=mamba_config,
-                vocab_size=args["nClasses"] + 1,
-                in_size=args["nInputFeatures"] * args["kernelLen"],
-            )
-            model = ModelWrapper(
-                mamba,
-                args["nInputFeatures"],
-                args["gaussianSmoothWidth"],
-                args["kernelLen"],
-                args["strideLen"],
-                len(loadedData["train"]),
-            ).to(device)
-        else:
-            model = ResnetDecoder(
-                args["nClasses"] + 1,
-                input_channels=1,
-                neural_dim=args["nInputFeatures"],
-                gaussianSmoothWidth=args["gaussianSmoothWidth"],
-                nDays=len(loadedData["train"]),
-                dropout=args["dropout"],
-            ).to(device)
-    else:
-        model = GRUDecoder(
-            neural_dim=args["nInputFeatures"],
-            n_classes=args["nClasses"],
-            hidden_dim=args["nUnits"],
-            layer_dim=args["nLayers"],
-            nDays=len(loadedData["train"]),
-            dropout=args["dropout"],
-            device=device,
-            strideLen=args["strideLen"],
-            kernelLen=args["kernelLen"],
-            gaussianSmoothWidth=args["gaussianSmoothWidth"],
-            bidirectional=args["bidirectional"],
-        ).to(device)
+    model = load_model_based_on_args(args)
 
     loss_ctc = torch.nn.CTCLoss(blank=0, reduction="mean", zero_infinity=True)
     if ("model" in args.keys()) and (args["model"] == "resnet"):
@@ -237,7 +168,7 @@ def trainModel(args):
         loss = loss_ctc(
             torch.permute(pred.log_softmax(2), [1, 0, 2]),
             y,
-            ((X_len - model.kernelLen) / model.strideLen).to(torch.int32),
+            ((X_len - args["kernelLen"]) / args["strideLen"]).to(torch.int32),
             y_len,
         )
         loss = torch.sum(loss)
@@ -270,13 +201,15 @@ def trainModel(args):
                     loss = loss_ctc(
                         torch.permute(pred.log_softmax(2), [1, 0, 2]),
                         y,
-                        ((X_len - model.kernelLen) / model.strideLen).to(torch.int32),
+                        ((X_len - args["kernelLen"]) / args["strideLen"]).to(
+                            torch.int32
+                        ),
                         y_len,
                     )
                     loss = torch.sum(loss)
                     allLoss.append(loss.cpu().detach().numpy())
 
-                    adjustedLens = ((X_len - model.kernelLen) / model.strideLen).to(
+                    adjustedLens = ((X_len - args["kernelLen"]) / args["strideLen"]).to(
                         torch.int32
                     )
                     for iterIdx in range(pred.shape[0]):
@@ -308,7 +241,7 @@ def trainModel(args):
                 startTime = time.time()
 
             if len(testCER) > 0 and cer < np.min(testCER):
-                torch.save(model.state_dict(), args["outputDir"] + "/modelWeights")
+                torch.save(model.state_dict(), out_dir + "/modelWeights")
             testLoss.append(avgDayLoss)
             testCER.append(cer)
 
@@ -316,8 +249,9 @@ def trainModel(args):
             tStats["testLoss"] = np.array(testLoss)
             tStats["testCER"] = np.array(testCER)
 
-            with open(args["outputDir"] + "/trainingStats", "wb") as file:
+            with open(out_dir + "/trainingStats", "wb") as file:
                 pickle.dump(tStats, file)
+    print("Saved results to", out_dir)
 
 
 def loadModel(modelDir, nInputLayers=24, device="cuda"):
@@ -340,6 +274,92 @@ def loadModel(modelDir, nInputLayers=24, device="cuda"):
     ).to(device)
 
     model.load_state_dict(torch.load(modelWeightPath, map_location=device))
+    return model
+
+
+def load_model_based_on_args(args):
+    device = "cuda"
+    model: torch.nn.Module
+    if "model" in args.keys():
+        if args["model"] == "mamba":
+            mamba_config = MambaArgsModel(
+                mamba_d_model=args["mamba_d_model"],
+                mamba_n_layer=args["mamba_n_layer"],
+                rms_norm=args["rms_norm"],
+                residual_in_fp32=args["residual_in_fp32"],
+                fused_add_norm=args["fused_add_norm"],
+                feature_extractor_hidden_sizes=args["feature_extractor_hidden_sizes"],
+                feature_extractor_activation=args["feature_extractor_activation"],
+                classifier_hidden_sizes=args["classifier_hidden_sizes"],
+                classifier_activation=args["classifier_activation"],
+                input_dropout=args["dropout"],
+            )
+            mamba = MambaModel(
+                config=mamba_config,
+                vocab_size=args["nClasses"] + 1,
+                in_size=args["nInputFeatures"] * args["kernelLen"],
+            )
+            b2p2t_model = B2P2TModel(
+                B2P2TModelArgsModel(
+                    gaussian_smooth_width=args["gaussianSmoothWidth"],
+                    input_layer_nonlinearity="softsign",
+                    unfolder_kernel_len=args["kernelLen"],
+                    unfolder_stride_len=args["strideLen"],
+                ),
+                mamba,
+            )
+            if "from_checkpoint" in args and args["from_checkpoint"] is not None:
+                b2p2t_model.load_state_dict(torch.load(args["from_checkpoint"]))
+            model = ModelWrapper(b2p2t_model).to(device)
+        elif args["model"] == "mvts":
+            mvts_config = B2TMvtsTransformerArgsModel(
+                dim_feedforward=args["dim_feedforward"],
+                dropout=args["dropout"],
+                num_layers=args["num_layers"],
+                classifier_activation=args["classifier_activation"],
+                num_heads=args["num_heads"],
+                dim_model=args["dim_model"],
+            )
+            mvts = MvtsTransformerModel(
+                config=mvts_config,
+                vocab_size=args["nClasses"] + 1,
+                in_size=args["nInputFeatures"] * args["kernelLen"],
+            )
+            b2p2t_model = B2P2TModel(
+                B2P2TModelArgsModel(
+                    gaussian_smooth_width=args["gaussianSmoothWidth"],
+                    input_layer_nonlinearity="softsign",
+                    unfolder_kernel_len=args["kernelLen"],
+                    unfolder_stride_len=args["strideLen"],
+                ),
+                mvts,
+            )
+            if "from_checkpoint" in args and args["from_checkpoint"] is not None:
+                b2p2t_model.load_state_dict(torch.load(args["from_checkpoint"]))
+            model = ModelWrapper(b2p2t_model).to(device)
+        else:
+            model = ResnetDecoder(
+                args["nClasses"] + 1,
+                input_channels=1,
+                neural_dim=args["nInputFeatures"],
+                gaussianSmoothWidth=args["gaussianSmoothWidth"],
+                nDays=24,
+                dropout=args["dropout"],
+            ).to(device)
+    else:
+        model = GRUDecoder(
+            neural_dim=args["nInputFeatures"],
+            n_classes=args["nClasses"],
+            hidden_dim=args["nUnits"],
+            layer_dim=args["nLayers"],
+            nDays=24,
+            dropout=args["dropout"],
+            device=device,
+            strideLen=args["strideLen"],
+            kernelLen=args["kernelLen"],
+            gaussianSmoothWidth=args["gaussianSmoothWidth"],
+            bidirectional=args["bidirectional"],
+        ).to(device)
     return model
 
 
