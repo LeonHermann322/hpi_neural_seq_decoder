@@ -20,8 +20,15 @@ from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import (
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--model_dir", type=str, default=None, help="Path to model dir")
+parser.add_argument(
+    "--lm_variant",
+    type=str,
+    choices=["3gram", "5gram"],
+    default=False,
+    help="Use 5gram LM",
+)
 input_args = parser.parse_args()
-
+print("Input args:", json.dumps(input_args.__dict__, indent=4))
 
 with open(input_args.model_dir + "/args", "rb") as handle:
     args = pickle.load(handle)
@@ -97,7 +104,11 @@ else:
 
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 
-lmDir = "/hpi/fs00/scratch/leon.hermann/languageModel"
+lmDir = (
+    "/hpi/fs00/scratch/leon.hermann/languageModel"
+    if input_args.lm_variant == "3gram"
+    else "/hpi/fs00/scratch/leon.hermann/speech_5gram/lang_test"
+)  # TODO: use correct 5gram path
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
     lmDir, acoustic_scale=0.5, nbest=100, beam=18
 )
@@ -125,7 +136,7 @@ for j in range(len(rnn_outputs["logits"])):
         logits[0],
         blankPenalty=blank_penalty,
         returnNBest=True,
-        rescore=False,
+        rescore=input_args.lm_variant == "5gram",
     )
     all_n_best.append(n_best)
 time_per_sample = (time.time() - start_t) / len(rnn_outputs["logits"])
@@ -160,7 +171,7 @@ wer, werIstart, werIend = llm_out["wer"]
 time_per_batch = (time.time() - start_t) / len(logits)
 print(f"LLM decoding took {time_per_batch} seconds per sample")
 
-out_file = input_args.model_dir + "/3gram_llm_submission.txt"
+out_file = input_args.model_dir + f"/{input_args.lm_variant}_llm_submission.txt"
 with open(out_file, "w") as f:
     for transcript in llm_out["decoded_transcripts"]:
         f.write(transcript.strip() + "\n")

@@ -12,4 +12,4 @@ eval "$(conda shell.bash hook)"
 conda activate lm_decoder
 export PYTHONPATH="/hpi/fs00/home/tobias.fiedler/brain2text"
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="python"
-srun python hpi_neural_seq_decoder/scripts/eval_competition_3gram_llm.py --model_dir=$1
+srun python hpi_neural_seq_decoder/scripts/eval_competition_ngram_llm.py --model_dir=$1 --lm_variant="3gram"
