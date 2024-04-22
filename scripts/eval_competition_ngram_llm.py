@@ -102,16 +102,20 @@ else:
     with open(input_args.model_dir + "/rnn_outputs.pkl", "wb") as f:
         pickle.dump(rnn_outputs, f)
 
+print("Logits generated", flush=True)
+
+
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 
 lmDir = (
     "/hpi/fs00/scratch/leon.hermann/languageModel"
     if input_args.lm_variant == "3gram"
     else "/hpi/fs00/scratch/leon.hermann/speech_5gram/lang_test"
-)  # TODO: use correct 5gram path
+)
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
     lmDir, acoustic_scale=0.5, nbest=100, beam=18
 )
+print("LM decoder built", flush=True)
 
 
 # LM decoding hyperparameters
@@ -131,9 +135,10 @@ for j in range(len(rnn_outputs["logits"])):
         [logits[:, 1:], logits[:, 0:1]], axis=-1
     )  # Blank is last token
     logits = lmDecoderUtils.rearrange_speech_logits(logits[None, :, :], has_sil=True)
+
     n_best = lmDecoderUtils.lm_decode(
         ngramDecoder,
-        logits[0],
+        logits[0][0 : rnn_outputs["logitLengths"][j]],
         blankPenalty=blank_penalty,
         returnNBest=True,
         rescore=input_args.lm_variant == "5gram",

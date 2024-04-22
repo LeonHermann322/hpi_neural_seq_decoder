@@ -6,17 +6,13 @@ from uuid import uuid4
 from edit_distance import SequenceMatcher
 import hydra
 from src.datasets.batch_types import PhonemeSampleBatch
-from src.experiments.b2p2t_experiment import B2P2TArgsModel
-from hpi_neural_seq_decoder.src.neural_decoder.augmentations import GaussianSmoothing
 import numpy as np
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
-
-# TODO: include the code imported from src.* into this repo
-from src.model.b2p2t_model import B2P2TModel, B2P2TModelArgsModel
-from src.model.mamba_model import MambaArgsModel, MambaModel
-from src.model.mvts_transformer_model import (
+from src.neural_decoder.b2p2t_model import B2P2TModel, B2P2TModelArgsModel
+from src.neural_decoder.mamba_model import MambaArgsModel, MambaModel
+from src.neural_decoder.mvts_transformer_model import (
     MvtsTransformerModel,
     B2TMvtsTransformerArgsModel,
 )
@@ -308,9 +304,17 @@ def load_model_based_on_args(args):
                 ),
                 mamba,
             )
-            if "from_checkpoint" in args and args["from_checkpoint"] is not None:
-                b2p2t_model.load_state_dict(torch.load(args["from_checkpoint"]))
+            if (
+                "from_ourpipeline_checkpoint" in args
+                and args["from_ourpipeline_checkpoint"] is not None
+            ):
+                b2p2t_model.load_state_dict(
+                    torch.load(args["from_ourpipeline_checkpoint"])
+                )
+
             model = ModelWrapper(b2p2t_model).to(device)
+            if "from_checkpoint" in args and args["from_checkpoint"] is not None:
+                model.load_state_dict(torch.load(args["from_checkpoint"]))
         elif args["model"] == "mvts":
             mvts_config = B2TMvtsTransformerArgsModel(
                 dim_feedforward=args["dim_feedforward"],

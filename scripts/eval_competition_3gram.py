@@ -97,9 +97,13 @@ else:
     with open(input_args.model_dir + "/rnn_outputs.pkl", "wb") as f:
         pickle.dump(rnn_outputs, f)
 
+print("Logits for test set generated", flush=True)
+sample = rnn_outputs["logits"][0]
+
+
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 
-print("Logits for test set generated")
+
 lmDir = "/hpi/fs00/scratch/leon.hermann/languageModel"
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
     lmDir, acoustic_scale=0.5, nbest=1, beam=18
@@ -123,7 +127,7 @@ for j in range(len(rnn_outputs["logits"])):
     logits = lmDecoderUtils.rearrange_speech_logits(logits[None, :, :], has_sil=True)
     decoded_transcript = lmDecoderUtils.lm_decode(
         ngramDecoder,
-        logits[0],
+        logits[0][0 : rnn_outputs["logitLengths"][j]],
         blankPenalty=blank_penalty,
         returnNBest=False,
         rescore=False,

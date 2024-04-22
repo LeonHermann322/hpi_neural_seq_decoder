@@ -3,7 +3,7 @@
 #SBATCH --mem=756G
 #SBATCH --gpus=1
 #SBATCH --mail-user tobias.fiedler@student.hpi.de
-#SBATCH --time=0-1:00:00
+#SBATCH --time=0-4:00:00
 #SBATCH --partition=sorcery
 #SBATCH  --constraint=ARCH:X86&GPU_SKU:A100
 

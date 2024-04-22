@@ -12,8 +12,8 @@ args["seqLen"] = 150
 args["batchSize"] = 64
 args["maxTimeSeriesLen"] = 1200
 args["lrStart"] = 0.005
-args["lrEnd"] = 0.005
-args["nBatch"] = 10000  # 3000
+args["lrEnd"] = 0.0025
+args["nBatch"] = 2000  # 3000
 args["nClasses"] = 40
 args["nInputFeatures"] = 256
 args["dropout"] = 0.3
@@ -34,7 +34,9 @@ args["num_heads"] = 2
 args["classifier_activation"] = "gelu"
 args["dim_model"] = 1024
 
-args["from_checkpoint"] = None
+args["from_checkpoint"] = (
+    "/hpi/fs00/scratch/tobias.fiedler/brain2text/speech_logs/mvts/796720d6-8cc8-454c-9ccd-f7c0cd984572/modelWeights"
+)
 
 print("Training Mvts model with args: ")
 print(json.dumps(args, indent=4))
