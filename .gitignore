@@ -161,3 +161,6 @@ cython_debug/
 
 config.json
 scripts/*.sh
+
+*.sh
+*.out
