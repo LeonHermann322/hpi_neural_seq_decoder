@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 
-from hpi_neural_seq_decoder.src.neural_decoder.augmentations import GaussianSmoothing
+from src.neural_decoder.augmentations import GaussianSmoothing
 
 
 class ResnetDecoder(nn.Module):

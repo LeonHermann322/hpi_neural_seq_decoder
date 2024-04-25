@@ -1,11 +1,14 @@
-from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import trainModel
+from src.neural_decoder.neural_decoder_trainer import trainModel
+from src.neural_decoder.util import Config
+import os
 
+config = Config()
 
 modelName = "resnet"
 
 args = {}
-args["outputDir"] = "/hpi/fs00/scratch/leon.hermann/b2t/speech_logs/" + modelName
-args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
+args["outputDir"] = os.path.join(config.output_dir, modelName)
+args["datasetPath"] = config.dataset_path
 args["seqLen"] = 150
 args["maxTimeSeriesLen"] = 1200
 args["batchSize"] = 8

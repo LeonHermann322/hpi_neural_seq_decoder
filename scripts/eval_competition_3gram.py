@@ -15,12 +15,13 @@ import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 import pickle
 import argparse
 
-from hpi_neural_seq_decoder.src.neural_decoder.dataset import SpeechDataset
-from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import (
+from src.neural_decoder.dataset import SpeechDataset
+from src.neural_decoder.neural_decoder_trainer import (
     getDatasetLoaders,
     load_model_based_on_args,
 )
 import json
+from src.neural_decoder.util import Config
 
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--model_dir", type=str, default=None, help="Path to model dir")
@@ -31,7 +32,9 @@ with open(input_args.model_dir + "/args", "rb") as handle:
     args = pickle.load(handle)
 print("Decoding for model with args", json.dumps(args, indent=4))
 
-args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
+config = Config()
+
+args["datasetPath"] = config.dataset_path
 trainLoaders, testLoaders, loadedData = getDatasetLoaders(
     args["datasetPath"], args["batchSize"]
 )
@@ -104,7 +107,7 @@ sample = rnn_outputs["logits"][0]
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 
 
-lmDir = "/hpi/fs00/scratch/leon.hermann/languageModel"
+lmDir = config.lm_3gram_dir
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
     lmDir, acoustic_scale=0.5, nbest=1, beam=18
 )

@@ -1,13 +1,14 @@
-from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import trainModel
+from src.neural_decoder.neural_decoder_trainer import trainModel
 import json
+from src.neural_decoder.util import Config
+import os
 
+config = Config()
 modelName = "mamba"
 
 args = {}
-args["outputDir"] = (
-    "/hpi/fs00/scratch/tobias.fiedler/brain2text/speech_logs/" + modelName
-)
-args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
+args["outputDir"] = os.path.join(config.output_dir, modelName)
+args["datasetPath"] = config.dataset_path
 args["seqLen"] = 150
 args["batchSize"] = 64
 args["maxTimeSeriesLen"] = 1200

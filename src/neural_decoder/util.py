@@ -89,3 +89,22 @@ def compute_ctc_loss(
             f"\nWarning: loss is negative, this might be due to prediction lens ({in_seq_lens.tolist()}) being smaller than target lens {target_lens.tolist()}\n"
         )
     return ctc_loss
+
+
+import os
+import json
+
+
+class Config:
+    def __init__(self):
+        if not os.path.exists("config.json"):
+            raise Exception(
+                "config.json not found. Please create a config.json as described in the README.md"
+            )
+        with open("config.json") as f:
+            config = json.load(f)
+            self.dataset_path = config["datasetPath"]
+            self.lm_3gram_dir = config["lm_3gram_dir"]
+            self.lm_5gram_dir = config["lm_5gram_dir"]
+            self.output_dir = config["outputDir"]
+            self.cache_dir = config["cacheDir"]

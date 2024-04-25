@@ -7,12 +7,14 @@ import os
 import pickle
 import argparse
 import json
-from hpi_neural_seq_decoder.src.neural_decoder.dataset import SpeechDataset
-from hpi_neural_seq_decoder.src.neural_decoder.neural_decoder_trainer import (
+from src.neural_decoder.dataset import SpeechDataset
+from src.neural_decoder.neural_decoder_trainer import (
     getDatasetLoaders,
     load_model_based_on_args,
 )
+from src.neural_decoder.util import Config
 
+config = Config()
 parser = argparse.ArgumentParser(description="")
 parser.add_argument("--model_dir", type=str, default=None, help="Path to model dir")
 parser.add_argument(
@@ -30,7 +32,7 @@ with open(input_args.model_dir + "/args", "rb") as handle:
 
 print("Decoding for model with args", json.dumps(args, indent=4))
 
-args["datasetPath"] = "/hpi/fs00/scratch/leon.hermann/b2t/data/ptDecoder_ctc"
+args["datasetPath"] = config.dataset_path
 trainLoaders, testLoaders, loadedData = getDatasetLoaders(
     args["datasetPath"], args["batchSize"]
 )
@@ -103,9 +105,7 @@ print("Logits generated", flush=True)
 import neuralDecoder.utils.lmDecoderUtils as lmDecoderUtils
 
 lmDir = (
-    "/hpi/fs00/scratch/leon.hermann/languageModel"
-    if input_args.lm_variant == "3gram"
-    else "/hpi/fs00/scratch/leon.hermann/speech_5gram/lang_test"
+    config.lm_3gram_dir if input_args.lm_variant == "3gram" else config.lm_5_gram_dir
 )
 ngramDecoder = lmDecoderUtils.build_lm_decoder(
     lmDir, acoustic_scale=0.5, nbest=100, beam=18
@@ -146,7 +146,7 @@ print(f"3gram decoding took {time_per_sample} seconds per sample")
 print("LLM rescoring")
 print("Loading LLM model")
 llm, llm_tokenizer = lmDecoderUtils.build_opt(
-    cacheDir="/hpi/fs00/scratch/tobias.fiedler/brain2text",
+    cacheDir=config.cache_dir,
     device="auto",
     load_in_8bit=True,
 )
