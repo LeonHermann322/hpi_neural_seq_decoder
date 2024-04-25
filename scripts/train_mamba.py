@@ -39,9 +39,7 @@ args["classifier_hidden_sizes"] = []  # [256, 128, 64]
 args["classifier_activation"] = "gelu"
 args["feature_extractor_hidden_sizes"] = []  # [256, 256, 128, 64]
 
-args["from_ourpipeline_checkpoint"] = (
-    "/hpi/fs00/scratch/tobias.fiedler/brain2text/experiment_results/b2p2t_mamba/2024-03-26_10#39#22/model.pt"
-)
+args["from_checkpoint"] = None
 
 print("Training Mamba model with args: ")
 print(json.dumps(args, indent=4))
