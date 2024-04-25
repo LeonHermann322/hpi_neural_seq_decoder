@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from edit_distance import SequenceMatcher
 import hydra
-from src.datasets.batch_types import PhonemeSampleBatch
+from src.neural_decoder.b2p2t_model import PhonemeSampleBatch
 import numpy as np
 import torch
 from torch.nn.utils.rnn import pad_sequence
